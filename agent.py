@@ -43,8 +43,10 @@ class Agent:
                                 data_format="channels_first"))
         model.add(Flatten())
         model.add(Dense(512, activation="relu"))
-        model.add(Dense(self.action_size, activation="sigmoid"))
-        model.compile(optimizer=Adam(lr=self.learning_rate, clipnorm=1.0, clipvalue=0.5), loss='categorical_crossentropy', metrics=['accuracy'])
+        # Not sure about Relu here. Should be a linear output but need to make sure initial outputs are positive
+        # as it messes up the future actions if there are large negative intial predictions
+        model.add(Dense(self.action_size, activation="relu",kernal_initializer=RandomUniform(minval=0, maxval=1), bias_initializer=RandomUniform(minval=0, maxval=1)))
+        model.compile(optimizer=Adam(lr=self.learning_rate), kernal_initializer=RandomUniform(minval=0, maxval=1), bias_initializer=RandomUniform(minval=0, maxval=1), loss='categorical_crossentropy', metrics=['accuracy'])
         return model
 
     # def fitBatchFirst(self, batch_size=32):
@@ -86,9 +88,9 @@ class Agent:
         targets = []
         for sample in samples:
             state, action, reward, new_state, done = sample
-            target_val = max(self.target_model.predict(np.expand_dims(state, axis=0))[0])
-            target = np.zeros(4)
-            target[action] = target_val
+            target = max(self.target_model.predict(np.expand_dims(state, axis=0))[0])
+            # target = np.zeros(4)
+            # target[action] = target_val
             # print("first prediction")
             # print(target[action])
 
@@ -116,7 +118,7 @@ class Agent:
         print(history.history['loss'])
 
     def findAction(self, state):
-        guess = self.model.predict(state)
+        guess = self.target_model.predict(state)
         guess = np.argmax(guess)
         return guess
 
@@ -126,9 +128,9 @@ class Agent:
     def saveToDisk(self, filename):
         self.model.save(filename)
 
-    # def target_train(self):
-    #     weights = self.model.get_weights()
-    #     target_weights = self.target_model.get_weights()
-    #     for i in range(len(target_weights)):
-    #         target_weights[i] = weights[i] * self.tau + target_weights[i] * (1 - self.tau)
-    #     self.target_model.set_weights(target_weights)
+    def target_train(self):
+        weights = self.model.get_weights()
+        target_weights = self.target_model.get_weights()
+        for i in range(len(target_weights)):
+            target_weights[i] = weights[i] * self.tau + target_weights[i] * (1 - self.tau)
+        self.target_model.set_weights(target_weights)
