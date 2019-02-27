@@ -15,13 +15,13 @@ class Agent:
         self.action_size = action_size
         self.gamma = 0.95
         self.epsilon = 1.0
-        self.memory = deque(maxlen=2000)
+        self.memory = deque(maxlen=200000)
         #self.memory = np.zeros(2000, dtype=object)
-        self.epsilon_min = 0.01
-        self.epsilon_decay = 0.005
+        self.epsilon_min = 0.1
+        self.epsilon_decay = 0.002
         self.learning_rate = 0.01
         self.model = self._buildModel() if stored_model == "nothing" else load_model(stored_model)
-        self.target_model = self._buildModel()
+        self.target_model = self._buildModel() if stored_model == "nothing" else load_model(stored_model)
         self.tau = .05
 
 
@@ -45,8 +45,8 @@ class Agent:
         model.add(Dense(512, activation="relu"))
         # Not sure about Relu here. Should be a linear output but need to make sure initial outputs are positive
         # as it messes up the future actions if there are large negative intial predictions
-        model.add(Dense(self.action_size, activation="relu",kernal_initializer=RandomUniform(minval=0, maxval=1), bias_initializer=RandomUniform(minval=0, maxval=1)))
-        model.compile(optimizer=Adam(lr=self.learning_rate), kernal_initializer=RandomUniform(minval=0, maxval=1), bias_initializer=RandomUniform(minval=0, maxval=1), loss='categorical_crossentropy', metrics=['accuracy'])
+        model.add(Dense(self.action_size,kernel_initializer=RandomUniform(minval=0, maxval=0.1), bias_initializer=RandomUniform(minval=0, maxval=0.1)))
+        model.compile(optimizer=Adam(lr=self.learning_rate), loss='categorical_crossentropy', metrics=['accuracy'])
         return model
 
     # def fitBatchFirst(self, batch_size=32):
@@ -88,17 +88,17 @@ class Agent:
         targets = []
         for sample in samples:
             state, action, reward, new_state, done = sample
-            target = max(self.target_model.predict(np.expand_dims(state, axis=0))[0])
+            target = self.target_model.predict(np.expand_dims(state, axis=0))[0]
             # target = np.zeros(4)
             # target[action] = target_val
             # print("first prediction")
-            # print(target[action])
+            #print(target)
+            #print(target[action])
 
             if done:
                 target[action] = reward
-                future_q_array = self.target_model.predict(np.expand_dims(state, axis=0))[0]
+                #future_q_array = self.target_model.predict(np.expand_dims(state, axis=0))[0]
                 # print("Final-Prediction-Array")
-                # print(future_q_array)
             else:
                 future_q_array = self.target_model.predict(np.expand_dims(new_state, axis=0))[0]
                 # print("Q-Array")
@@ -108,17 +108,17 @@ class Agent:
                 # print(reward + (Q_future * self.gamma) - target[action])
                 # print("target[action] + 0.1 * (reward + (Q_future * self.gamma) - target[action])")
                 # print(target[action] + 0.1 * (reward + (Q_future * self.gamma) - target[action]))
-                target[action] = target[action] + 0.1 * (reward + (Q_future * self.gamma) - target[action])
+                target[action] = reward + Q_future * self.gamma
                 #target[action] = reward + Q_future * self.gamma
                 # print("new target")
                 # print(target[action])
             states.append(state)
             targets.append(target)
         history = self.model.fit(np.array(states), np.array(targets), epochs=1, batch_size=batch_size, verbose=0)
-        print(history.history['loss'])
+        #print(history.history['loss'])
 
     def findAction(self, state):
-        guess = self.target_model.predict(state)
+        guess = self.model.predict(state)
         guess = np.argmax(guess)
         return guess
 
@@ -126,7 +126,7 @@ class Agent:
         self.memory.append((state, action, reward, next_state, done))
 
     def saveToDisk(self, filename):
-        self.model.save(filename)
+        self.target_model.save(filename)
 
     def target_train(self):
         weights = self.model.get_weights()

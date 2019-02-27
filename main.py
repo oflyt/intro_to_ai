@@ -21,7 +21,7 @@ from image_processor import ImageProcessor
 #     return arr
 
 #np.set_printoptions(threshold=sys.maxsize)
-stored_model = "the_model.h5"
+stored_model = "the_model_ddqn.h5"
 env = gym.make('BreakoutDeterministic-v4')
 image_processor = ImageProcessor()
 
@@ -43,11 +43,11 @@ else:
 
 
 #openCV inverts order of dims
-current_state = np.zeros((5, dims[1], dims[0]), dtype=int)
+current_state = np.zeros((4, dims[1], dims[0]), dtype=int)
 print(current_state.shape)
 print(env.action_space)
 print(env.action_space.n)
-agent = Agent(current_state.shape, env.action_space.n)
+agent = Agent(current_state.shape, env.action_space.n, stored_model)
 counter = 0
 
 while counter < 2000:
@@ -83,13 +83,14 @@ while counter < 2000:
 
 #agent.fitBatchFirst(2000)
 
-for episode in range(1000):
+for episode in range(10000):
 
     #reset env, get first four images
     state = env.reset()
 
     #retrieve first four images
     counter = 0
+    no_reward_counter = 0
     tmp_images = []
 
     for i in range(0, 5):
@@ -104,7 +105,8 @@ for episode in range(1000):
     start = time.time()
     state = env.reset()
     print("start real")
-    while not done:
+    lives = env.unwrapped.ale.lives()
+    while not done and no_reward_counter < 400:
 
         previous_state = current_state
         e = random.random()
@@ -116,28 +118,37 @@ for episode in range(1000):
         state, reward, done, _ = env.step(action)
         img = image_processor.preprocess(state, dims)
         counter += 1
+        if reward == 0:
+            no_reward_counter += 1
+        else:
+            no_reward_counter = 0
 
         current_state = np.roll(current_state, 1, axis=0)
         current_state[0] = img
 
-        agent.addToMemory(previous_state, action, reward, current_state, done)
+        lost_life_or_done = env.unwrapped.ale.lives() < lives or done
+
+        agent.addToMemory(previous_state, action, reward, current_state, lost_life_or_done)
         tot_reward += reward
-        if counter % 32 == 0:
+        if counter % 4 == 0:
             agent.fitBatch(32)
-            #agent.target_train()
+        if counter % 128:
+            agent.target_train()
         #shorten training time, we can still see improvements
-        #env.render()
+        env.render()
     agent.epsilon = agent.epsilon_min + (1.0 - agent.epsilon_min) * np.exp(-agent.epsilon_decay * episode)
+    agent.target_train()
     end = time.time()
-    print("epsilon")
-    print(agent.epsilon)
     print()
-    print("real end")
-    print(end - start)
+    print("frames played", counter)
+    print("finished cleanly", done if done else no_reward_counter)
+    print("epsilon: ", agent.epsilon)
+    print("real end time: ", end - start)
+    agent.saveToDisk(stored_model)
 
 
     #Print score
-    print("episode: {}/2500, score: {}"
+    print("episode: {}/10000, score: {}"
             .format(episode, tot_reward))
 
 agent.saveToDisk(stored_model);

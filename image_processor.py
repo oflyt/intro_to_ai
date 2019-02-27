@@ -13,7 +13,8 @@ class ImageProcessor:
         return cv2.resize(img, dsize=dim, interpolation=cv2.INTER_AREA)
 
     def preprocess(self, img, dim):
-        return self.to_grayscale(self.downsample(img, dim))
+        f = lambda x: x / 255
+        return f(self.to_grayscale(self.downsample(img, dim)))
 
     def scaledDimensions(self, width, height, scale):
         return int(width * scale), int(height * scale)
