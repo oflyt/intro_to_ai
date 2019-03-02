@@ -18,7 +18,7 @@ class Agent:
         self.memory = deque(maxlen=200000)
         #self.memory = np.zeros(2000, dtype=object)
         self.epsilon_min = 0.1
-        self.epsilon_decay = 0.002
+        self.epsilon_decay = 0.0005
         self.learning_rate = 0.01
         self.model = self._buildModel() if stored_model == "nothing" else load_model(stored_model)
         self.target_model = self._buildModel() if stored_model == "nothing" else load_model(stored_model)
@@ -45,7 +45,7 @@ class Agent:
         model.add(Dense(512, activation="relu"))
         # Not sure about Relu here. Should be a linear output but need to make sure initial outputs are positive
         # as it messes up the future actions if there are large negative intial predictions
-        model.add(Dense(self.action_size,kernel_initializer=RandomUniform(minval=0, maxval=0.1), bias_initializer=RandomUniform(minval=0, maxval=0.1)))
+        model.add(Dense(self.action_size,kernel_initializer=RandomUniform(minval=0, maxval=0.001), bias_initializer=RandomUniform(minval=0, maxval=0.001)))
         model.compile(optimizer=Adam(lr=self.learning_rate), loss='categorical_crossentropy', metrics=['accuracy'])
         return model
 
@@ -88,8 +88,8 @@ class Agent:
         targets = []
         for sample in samples:
             state, action, reward, new_state, done = sample
-            target = self.target_model.predict(np.expand_dims(state, axis=0))[0]
-            # target = np.zeros(4)
+            #target = self.model.predict(np.expand_dims(state, axis=0))[0]
+            target = np.zeros(4)
             # target[action] = target_val
             # print("first prediction")
             #print(target)
@@ -99,6 +99,7 @@ class Agent:
                 target[action] = reward
                 #future_q_array = self.target_model.predict(np.expand_dims(state, axis=0))[0]
                 # print("Final-Prediction-Array")
+                # print(future_q_array)
             else:
                 future_q_array = self.target_model.predict(np.expand_dims(new_state, axis=0))[0]
                 # print("Q-Array")
@@ -118,9 +119,15 @@ class Agent:
         #print(history.history['loss'])
 
     def findAction(self, state):
-        guess = self.model.predict(state)
-        guess = np.argmax(guess)
+        guessVector = self.model.predict(state)
+        guess = np.argmax(guessVector)
         return guess
+
+    def getPredictionVector(self):
+        samples = random.sample(self.memory, 1)
+        state, action, reward, new_state, done = samples[0]
+        guessVector = self.model.predict(np.expand_dims(state, axis=0))[0]
+        return guessVector
 
     def addToMemory(self, state, action, reward, next_state, done):
         self.memory.append((state, action, reward, next_state, done))

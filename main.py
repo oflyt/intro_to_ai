@@ -21,7 +21,7 @@ from image_processor import ImageProcessor
 #     return arr
 
 #np.set_printoptions(threshold=sys.maxsize)
-stored_model = "the_model_ddqn.h5"
+stored_model = "the_model_ddqn_2.h5"
 env = gym.make('BreakoutDeterministic-v4')
 image_processor = ImageProcessor()
 
@@ -29,25 +29,27 @@ state = env.reset()
 
 #####
 
+np.set_printoptions(threshold=np.inf)
+
 start = time.time()
 state = env.reset()
-dims = (0,0)
+dims = (84,84)
 
 
 if type(env.observation_space) is spaces.Box:
     (height, width, rgb) = env.observation_space.shape
-    dims = image_processor.scaledDimensions(width, height, 0.25)
+    # dims = image_processor.scaledDimensions(width, height, 0.25)
 else:
     raise SystemExit
 
 
 
 #openCV inverts order of dims
-current_state = np.zeros((4, dims[1], dims[0]), dtype=int)
+current_state = np.zeros((4, dims[1], dims[0]), dtype=np.uint8)
 print(current_state.shape)
 print(env.action_space)
 print(env.action_space.n)
-agent = Agent(current_state.shape, env.action_space.n, stored_model)
+agent = Agent(current_state.shape, env.action_space.n)
 counter = 0
 
 while counter < 2000:
@@ -83,6 +85,8 @@ while counter < 2000:
 
 #agent.fitBatchFirst(2000)
 
+big_counter = 0
+
 for episode in range(10000):
 
     #reset env, get first four images
@@ -105,7 +109,7 @@ for episode in range(10000):
     start = time.time()
     state = env.reset()
     print("start real")
-    lives = env.unwrapped.ale.lives()
+    #lives = env.unwrapped.ale.lives()
     while not done and no_reward_counter < 400:
 
         previous_state = current_state
@@ -118,6 +122,7 @@ for episode in range(10000):
         state, reward, done, _ = env.step(action)
         img = image_processor.preprocess(state, dims)
         counter += 1
+        big_counter += 1
         if reward == 0:
             no_reward_counter += 1
         else:
@@ -126,21 +131,25 @@ for episode in range(10000):
         current_state = np.roll(current_state, 1, axis=0)
         current_state[0] = img
 
-        lost_life_or_done = env.unwrapped.ale.lives() < lives or done
+        #lost_life_or_done = env.unwrapped.ale.lives() < lives or done
 
-        agent.addToMemory(previous_state, action, reward, current_state, lost_life_or_done)
+        agent.addToMemory(previous_state, action, reward, current_state, done)
         tot_reward += reward
-        if counter % 4 == 0:
+        if (counter + 1) % 4 == 0:
             agent.fitBatch(32)
-        if counter % 128:
+            # image_processor.show(current_state)
+        if (big_counter + 1) % 2000 == 0:
+            print("train target", big_counter)
             agent.target_train()
         #shorten training time, we can still see improvements
-        env.render()
+        #env.render()
     agent.epsilon = agent.epsilon_min + (1.0 - agent.epsilon_min) * np.exp(-agent.epsilon_decay * episode)
     agent.target_train()
     end = time.time()
     print()
+    print("decision vector", agent.getPredictionVector())
     print("frames played", counter)
+    print("total frames played", big_counter)
     print("finished cleanly", done if done else no_reward_counter)
     print("epsilon: ", agent.epsilon)
     print("real end time: ", end - start)
