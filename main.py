@@ -3,87 +3,81 @@ from gym import spaces
 import random
 import numpy as np
 import time
-import sys
+
 
 
 # from memory import Memory
 from agent import Agent
 from image_processor import ImageProcessor
 
-# def getPreviousFourImages(images, counter):
-#     arr = [
-#         images[counter-4],
-#         images[counter-3],
-#         images[counter-2],
-#         images[counter-1],
-#     ]
-#     arr = np.expand_dims(arr, axis=0)
-#     return arr
 
 #np.set_printoptions(threshold=sys.maxsize)
-stored_model = "the_model_ddqn_2.h5"
+stored_model = "the_model_ddqn_4.h5"
 env = gym.make('BreakoutDeterministic-v4')
 image_processor = ImageProcessor()
+replay_length = 200000
+dims = (84,84)
+current_state = np.zeros((4, dims[1], dims[0]), dtype=np.uint8)
+agent = Agent(current_state.shape, env.action_space.n, replay_length)
 
-state = env.reset()
 
 #####
 
-np.set_printoptions(threshold=np.inf)
-
-start = time.time()
-state = env.reset()
-dims = (84,84)
-
-
-if type(env.observation_space) is spaces.Box:
-    (height, width, rgb) = env.observation_space.shape
-    # dims = image_processor.scaledDimensions(width, height, 0.25)
-else:
-    raise SystemExit
+# if type(env.observation_space) is spaces.Box:
+#     (height, width, rgb) = env.observation_space.shape
+#     # dims = image_processor.scaledDimensions(width, height, 0.25)
+# else:
+#     raise SystemExit
 
 
-
+print(env.unwrapped.get_action_meanings())
 #openCV inverts order of dims
-current_state = np.zeros((4, dims[1], dims[0]), dtype=np.uint8)
+
 print(current_state.shape)
 print(env.action_space)
 print(env.action_space.n)
-agent = Agent(current_state.shape, env.action_space.n)
-counter = 0
 
-while counter < 2000:
-    done = False
-    print("start only env")
-    env.reset()
-    while not done:
-        #env.render()
-        previous_state = current_state
-        action = env.action_space.sample()
-        state, reward, done, _ = env.step(action)
-        img = image_processor.preprocess(state, dims)
-        current_state = np.roll(current_state, 1, axis=0)
-        current_state[0] = img
-        agent.addToMemory(previous_state, action, reward, current_state, done)
-        counter += 1
-        # print(current_state[0][47], current_state[1][47], current_state[2][47], current_state[3][47])
-        #
-        # #image_processor.show(img)
-        # print(len(state), len(state[0]))
-        # print(reward)
+####PREFILL
 
 
-    end = time.time()
+state = env.reset()
+start = time.time()
 
-    print("End of dummy")
+
+try:
+    agent.memory_current = np.load('numpy_prefill_memory_current.npy')
+    agent.memory_reward = np.load('numpy_prefill_memory_reward.npy')
+    agent.memory_action = np.load('numpy_prefill_memory_action.npy')
+    agent.memory_done = np.load('numpy_prefill_memory_done.npy')
+    agent.memory_next = np.load('numpy_prefill_memory_next.npy')
+except IOError:
+    prefill_counter = 0
+    print("start prefill")
+    while prefill_counter < replay_length:
+        done = False
+        env.reset()
+        print("counter = ", prefill_counter)
+        while not done:
+            previous_state = current_state
+            action = env.action_space.sample()
+            state, reward, done, _ = env.step(action)
+            img = image_processor.preprocess(state, dims)
+            current_state = np.roll(current_state, 1, axis=0)
+            current_state[0] = img
+            agent.addToMemory(previous_state, action, reward, current_state, done, prefill_counter)
+            prefill_counter += 1
+
+        end = time.time()
+
+    print("End of prefill")
     print(end - start)
+    np.save('numpy_prefill_memory_current', agent.memory_current)
+    np.save('numpy_prefill_memory_reward', agent.memory_reward)
+    np.save('numpy_prefill_memory_action', agent.memory_action)
+    np.save('numpy_prefill_memory_done', agent.memory_done)
+    np.save('numpy_prefill_memory_next', agent.memory_next)
 
 #####
-
-#4 images, 105x80 in size, output is the number of possible actions as we one-hot encode
-#Shouldn't have to hardcode input_dim (4, 105, 80)
-
-#agent.fitBatchFirst(2000)
 
 big_counter = 0
 
@@ -133,18 +127,16 @@ for episode in range(10000):
 
         #lost_life_or_done = env.unwrapped.ale.lives() < lives or done
 
-        agent.addToMemory(previous_state, action, reward, current_state, done)
+        agent.addToMemory(previous_state, action, reward, current_state, done, big_counter)
         tot_reward += reward
-        if (counter + 1) % 4 == 0:
-            agent.fitBatch(32)
-            # image_processor.show(current_state)
-        if (big_counter + 1) % 2000 == 0:
+        agent.fitBatch(32)
+        if (big_counter + 1) % 4000 == 0:
             print("train target", big_counter)
             agent.target_train()
-        #shorten training time, we can still see improvements
+
         #env.render()
     agent.epsilon = agent.epsilon_min + (1.0 - agent.epsilon_min) * np.exp(-agent.epsilon_decay * episode)
-    agent.target_train()
+    #agent.target_train()
     end = time.time()
     print()
     print("decision vector", agent.getPredictionVector())
@@ -153,7 +145,12 @@ for episode in range(10000):
     print("finished cleanly", done if done else no_reward_counter)
     print("epsilon: ", agent.epsilon)
     print("real end time: ", end - start)
-    agent.saveToDisk(stored_model)
+    print("average per step", (end - start)/counter)
+    print("image process time per step", image_processor.processTime)
+    print("addToMemory time per step", agent.addToMemoryTime)
+    print("fitBatch time per step", agent.fitBatchTime)
+    print("findAction time per step", agent.findActionTime)
+    agent.saveToDisk(stored_model, episode)
 
 
     #Print score

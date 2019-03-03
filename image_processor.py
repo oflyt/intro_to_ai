@@ -1,9 +1,11 @@
 import numpy as np
 import cv2
+import time
 
 class ImageProcessor:
 
     def __init__(self):
+        self.processTime = 0
         pass
 
     def to_grayscale(self, img):
@@ -13,7 +15,11 @@ class ImageProcessor:
         return cv2.resize(img, dsize=dim, interpolation=cv2.INTER_AREA)
 
     def preprocess(self, img, dim):
-        return self.to_grayscale(self.downsample(img, dim))
+        #start = time.time()
+        thing = self.to_grayscale(self.downsample(img, dim))
+        #end = time.time()
+        #self.processTime = (self.processTime + (end - start)) / 2
+        return thing
 
     def scaledDimensions(self, width, height, scale):
         return int(width * scale), int(height * scale)

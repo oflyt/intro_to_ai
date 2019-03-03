@@ -1,28 +1,34 @@
 import numpy as np
 from keras.models import Sequential, load_model
 from keras.layers import Dense, Conv2D, Flatten
-from collections import deque
 from keras.optimizers import Adam
 from keras.initializers import RandomUniform
-import itertools
-import random
-import h5py
+from keras.callbacks import TensorBoard
 
 class Agent:
 
-    def __init__(self, state_size, action_size, stored_model="nothing"):
+    def __init__(self, state_size, action_size, queue_length, stored_model="nothing"):
         self.state_size = state_size
         self.action_size = action_size
         self.gamma = 0.95
         self.epsilon = 1.0
-        self.memory = deque(maxlen=200000)
-        #self.memory = np.zeros(2000, dtype=object)
+        self.queue_length = queue_length
+        self.memory_current = np.zeros((queue_length, state_size[0], state_size[1], state_size[2]), dtype=np.uint8)
+        self.memory_next = np.zeros((queue_length, state_size[0], state_size[1], state_size[2]), dtype=np.uint8)
+        self.memory_action = np.zeros(queue_length, dtype=np.uint8)
+        self.memory_reward = np.zeros(queue_length, dtype=np.uint8)
+        self.memory_done = np.zeros(queue_length, dtype=bool)
         self.epsilon_min = 0.1
-        self.epsilon_decay = 0.0005
+        self.epsilon_decay = 0.005
         self.learning_rate = 0.01
         self.model = self._buildModel() if stored_model == "nothing" else load_model(stored_model)
         self.target_model = self._buildModel() if stored_model == "nothing" else load_model(stored_model)
         self.tau = .05
+        self.tensorboard = TensorBoard(log_dir="logs/test")
+
+        self.addToMemoryTime = 0
+        self.fitBatchTime = 0
+        self.findActionTime = 0
 
 
     def _buildModel(self):
@@ -41,99 +47,73 @@ class Agent:
                                 activation="relu",
                                 input_shape=self.state_size,
                                 data_format="channels_first"))
+        model.add(Conv2D(64,
+                         4,
+                         strides=(1, 1),
+                         padding="valid",
+                         activation="relu",
+                         input_shape=self.state_size,
+                         data_format="channels_first"))
         model.add(Flatten())
         model.add(Dense(512, activation="relu"))
-        # Not sure about Relu here. Should be a linear output but need to make sure initial outputs are positive
-        # as it messes up the future actions if there are large negative intial predictions
-        model.add(Dense(self.action_size,kernel_initializer=RandomUniform(minval=0, maxval=0.001), bias_initializer=RandomUniform(minval=0, maxval=0.001)))
-        model.compile(optimizer=Adam(lr=self.learning_rate), loss='categorical_crossentropy', metrics=['accuracy'])
+        model.add(Dense(self.action_size, activation="linear", kernel_initializer=RandomUniform(minval=0, maxval=0.0001), bias_initializer=RandomUniform(minval=0, maxval=0.0001)))
+        model.compile(optimizer=Adam(lr=self.learning_rate), loss='mse', metrics=['accuracy'])
         return model
 
-    # def fitBatchFirst(self, batch_size=32):
-    #     if len(self.memory) < batch_size:
-    #         return
-    #     samples = random.sample(self.memory, batch_size)
-    #     states = []
-    #     targets = []
-    #     for sample in samples:
-    #         state, action, reward, new_state, done = sample
-    #         #target_val = max(self.model.predict(np.expand_dims(state, axis=0))[0])
-    #         target = np.zeros(4)
-    #         #target[action] = target_val
-    #         print("first prediction")
-    #         print(target[action])
-    #
-    #
-    #         if done:
-    #             target[action] = reward
-    #         else:
-    #             # future_q_array = self.model.predict(np.expand_dims(new_state, axis=0))[0]
-    #             # print("Q-Array")
-    #             # print(future_q_array)
-    #             # Q_future = max([0,max(future_q_array)])
-    #             # print("reward + (Q_future * self.gamma) - target[action]")
-    #             # print(reward + (Q_future * self.gamma) - target[action])
-    #             target[action] = target[action] + 0.1 * (reward + 0 - target[action])
-    #             print("new target")
-    #             print(target[action])
-    #         states.append(state)
-    #         targets.append(target)
-    #     self.model.fit(np.array(states), np.array(targets), epochs=1, batch_size=batch_size, verbose=0)
-
     def fitBatch(self, batch_size=32):
-        if len(self.memory) < batch_size: 
-            return
-        samples = random.sample(self.memory, batch_size)
-        states = []
-        targets = []
-        for sample in samples:
-            state, action, reward, new_state, done = sample
-            #target = self.model.predict(np.expand_dims(state, axis=0))[0]
-            target = np.zeros(4)
-            # target[action] = target_val
-            # print("first prediction")
-            #print(target)
-            #print(target[action])
 
-            if done:
-                target[action] = reward
-                #future_q_array = self.target_model.predict(np.expand_dims(state, axis=0))[0]
-                # print("Final-Prediction-Array")
-                # print(future_q_array)
+        if len(self.memory_current) < batch_size:
+            return
+
+        #start = time.time()
+
+        indexes = np.random.randint(low=0, high=self.queue_length, size=batch_size, dtype=int)
+        targets = np.zeros((batch_size,self.action_size))
+        future_q_array = self.target_model.predict(self.memory_next[indexes])
+
+        count = 0
+        for i in indexes:
+            target = np.zeros(4)
+            if self.memory_done[i]:
+                target[self.memory_action[i]] = self.memory_reward[i]
             else:
-                future_q_array = self.target_model.predict(np.expand_dims(new_state, axis=0))[0]
-                # print("Q-Array")
-                # print(future_q_array)
-                Q_future = max(future_q_array)
-                # print("reward + (Q_future * self.gamma) - target[action]")
-                # print(reward + (Q_future * self.gamma) - target[action])
-                # print("target[action] + 0.1 * (reward + (Q_future * self.gamma) - target[action])")
-                # print(target[action] + 0.1 * (reward + (Q_future * self.gamma) - target[action]))
-                target[action] = reward + Q_future * self.gamma
-                #target[action] = reward + Q_future * self.gamma
-                # print("new target")
-                # print(target[action])
-            states.append(state)
-            targets.append(target)
-        history = self.model.fit(np.array(states), np.array(targets), epochs=1, batch_size=batch_size, verbose=0)
-        #print(history.history['loss'])
+                Q_future = max(future_q_array[count])
+                target[self.memory_action[i]] = self.memory_reward[i] + Q_future * self.gamma
+            targets[count] = target
+            count += 1
+
+        self.model.fit(self.memory_current[indexes], targets, epochs=1, batch_size=batch_size, verbose=0)
+        # end = time.time()
+        # self.fitBatchTime = (self.fitBatchTime + (end - start)) / 2
 
     def findAction(self, state):
-        guessVector = self.model.predict(state)
-        guess = np.argmax(guessVector)
-        return guess
+        #start = time.time()
+        return np.argmax(self.model.predict(state))
+        #end = time.time()
+        #self.findActionTime = (self.findActionTime + (end - start)) / 2
+        #return thing
 
     def getPredictionVector(self):
-        samples = random.sample(self.memory, 1)
-        state, action, reward, new_state, done = samples[0]
-        guessVector = self.model.predict(np.expand_dims(state, axis=0))[0]
+        sample_index = np.random.randint(low=0, high=self.queue_length, dtype=int)
+        #state, action, reward, new_state, done = samples[0]
+        guessVector = self.model.predict(np.expand_dims(self.memory_current[sample_index], axis=0))[0]
         return guessVector
 
-    def addToMemory(self, state, action, reward, next_state, done):
-        self.memory.append((state, action, reward, next_state, done))
+    def addToMemory(self, state, action, reward, next_state, done, counter):
+        #start = time.time()
+        index = counter % self.queue_length
+        self.memory_current[index] = state
+        self.memory_next[index] = next_state
+        self.memory_action[index] = action
+        self.memory_reward[index] = reward
+        self.memory_done[index] = done
+        #end = time.time()
+        #self.addToMemoryTime = (self.addToMemoryTime + (end - start)) / 2
 
-    def saveToDisk(self, filename):
-        self.target_model.save(filename)
+
+    def saveToDisk(self, filename, episode):
+        if (episode +1) % 10 == 0:
+            self.target_model.save(filename)
 
     def target_train(self):
         weights = self.model.get_weights()
