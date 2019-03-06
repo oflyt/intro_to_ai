@@ -12,7 +12,7 @@ from image_processor import ImageProcessor
 
 
 #np.set_printoptions(threshold=sys.maxsize)
-stored_model = "the_model_ddqn_4.h5"
+stored_model = "the_model_ddqn_5.h5"
 env = gym.make('BreakoutDeterministic-v4')
 image_processor = ImageProcessor()
 replay_length = 200000
@@ -130,12 +130,12 @@ for episode in range(10000):
         agent.addToMemory(previous_state, action, reward, current_state, done, big_counter)
         tot_reward += reward
         agent.fitBatch(32)
-        if (big_counter + 1) % 4000 == 0:
+        if (big_counter + 1) % 10000 == 0:
             print("train target", big_counter)
             agent.target_train()
 
         #env.render()
-    agent.epsilon = agent.epsilon_min + (1.0 - agent.epsilon_min) * np.exp(-agent.epsilon_decay * episode)
+    agent.epsilon = agent.epsilon_min + (1.0 - agent.epsilon_min) * np.exp(-agent.epsilon_decay * (episode - 4000 if episode > 6000 else episode))
     #agent.target_train()
     end = time.time()
     print()
@@ -146,10 +146,10 @@ for episode in range(10000):
     print("epsilon: ", agent.epsilon)
     print("real end time: ", end - start)
     print("average per step", (end - start)/counter)
-    print("image process time per step", image_processor.processTime)
-    print("addToMemory time per step", agent.addToMemoryTime)
-    print("fitBatch time per step", agent.fitBatchTime)
-    print("findAction time per step", agent.findActionTime)
+    # print("image process time per step", image_processor.processTime)
+    # print("addToMemory time per step", agent.addToMemoryTime)
+    # print("fitBatch time per step", agent.fitBatchTime)
+    # print("findAction time per step", agent.findActionTime)
     agent.saveToDisk(stored_model, episode)
 
 
@@ -157,14 +157,5 @@ for episode in range(10000):
     print("episode: {}/10000, score: {}"
             .format(episode, tot_reward))
 
-agent.saveToDisk(stored_model);
-
-
-
-
-    
-
-
-
-
+agent.saveToDisk(stored_model)
 env.close()

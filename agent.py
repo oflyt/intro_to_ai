@@ -1,9 +1,14 @@
 import numpy as np
 from keras.models import Sequential, load_model
-from keras.layers import Dense, Conv2D, Flatten
+from keras.layers import Dense, Conv2D, Flatten, BatchNormalization
 from keras.optimizers import Adam
-from keras.initializers import RandomUniform
+from keras.initializers import RandomUniform, VarianceScaling
 from keras.callbacks import TensorBoard
+import tensorflow as tf
+
+
+def huber_loss(y_true, y_pred):
+    return tf.reduce_mean(tf.losses.huber_loss(y_true, y_pred))
 
 class Agent:
 
@@ -19,8 +24,8 @@ class Agent:
         self.memory_reward = np.zeros(queue_length, dtype=np.uint8)
         self.memory_done = np.zeros(queue_length, dtype=bool)
         self.epsilon_min = 0.1
-        self.epsilon_decay = 0.005
-        self.learning_rate = 0.01
+        self.epsilon_decay = 0.001
+        self.learning_rate = 0.00001
         self.model = self._buildModel() if stored_model == "nothing" else load_model(stored_model)
         self.target_model = self._buildModel() if stored_model == "nothing" else load_model(stored_model)
         self.tau = .05
@@ -31,14 +36,18 @@ class Agent:
         self.findActionTime = 0
 
 
+
     def _buildModel(self):
         model = Sequential()
+        model.add(BatchNormalization(input_shape=self.state_size))
         model.add(Conv2D(32,
                                 8,
                                 strides=(4, 4),
                                 padding="valid",
                                 activation="relu",
                                 input_shape=self.state_size,
+                                kernel_initializer=VarianceScaling(scale=2),
+                                use_bias=False,
                                 data_format="channels_first"))
         model.add(Conv2D(64,
                                 4,
@@ -46,18 +55,32 @@ class Agent:
                                 padding="valid",
                                 activation="relu",
                                 input_shape=self.state_size,
+                                kernel_initializer=VarianceScaling(scale=2),
+                                use_bias=False,
                                 data_format="channels_first"))
         model.add(Conv2D(64,
-                         4,
+                         3,
                          strides=(1, 1),
                          padding="valid",
                          activation="relu",
                          input_shape=self.state_size,
+                         kernel_initializer=VarianceScaling(scale=2),
+                         use_bias=False,
                          data_format="channels_first"))
+        # model.add(Conv2D(512,
+        #                  7,
+        #                  strides=(1, 1),
+        #                  padding="valid",
+        #                  activation="relu",
+        #                  input_shape=self.state_size,
+        #                  kernel_initializer=VarianceScaling(scale=2),
+        #                  use_bias=False,
+        #                  data_format="channels_first"))
+                         
         model.add(Flatten())
-        model.add(Dense(512, activation="relu"))
-        model.add(Dense(self.action_size, activation="linear", kernel_initializer=RandomUniform(minval=0, maxval=0.0001), bias_initializer=RandomUniform(minval=0, maxval=0.0001)))
-        model.compile(optimizer=Adam(lr=self.learning_rate), loss='mse', metrics=['accuracy'])
+        model.add(Dense(512, activation="relu", use_bias=False, kernel_initializer=VarianceScaling(scale=2)))
+        model.add(Dense(self.action_size, kernel_initializer=VarianceScaling(scale=2), use_bias=False))
+        model.compile(optimizer=Adam(lr=self.learning_rate), loss=huber_loss, metrics=['accuracy'])
         return model
 
     def fitBatch(self, batch_size=32):
@@ -111,7 +134,7 @@ class Agent:
         #self.addToMemoryTime = (self.addToMemoryTime + (end - start)) / 2
 
 
-    def saveToDisk(self, filename, episode):
+    def saveToDisk(self, filename, episode=9):
         if (episode +1) % 10 == 0:
             self.target_model.save(filename)
 
