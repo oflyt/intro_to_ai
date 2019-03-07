@@ -129,7 +129,7 @@ for episode in range(10000):
 
         agent.addToMemory(previous_state, action, reward, current_state, done, big_counter)
         tot_reward += reward
-        agent.fitBatch(32)
+        agent.fitBatch(reward, done, 32)
         if (big_counter + 1) % 10000 == 0:
             print("train target", big_counter)
             agent.target_train()
