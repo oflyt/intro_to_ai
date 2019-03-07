@@ -5,6 +5,7 @@ from keras.optimizers import Adam
 from keras.initializers import RandomUniform, VarianceScaling
 from keras.callbacks import TensorBoard
 import tensorflow as tf
+from custom_tensorboard import TensorBoardCustom
 
 
 def huber_loss(y_true, y_pred):
@@ -12,7 +13,7 @@ def huber_loss(y_true, y_pred):
 
 class Agent:
 
-    def __init__(self, state_size, action_size, queue_length, stored_model="nothing"):
+    def __init__(self, state_size, action_size, queue_length, stored_model="nothing", run_name = "run_1"):
         self.state_size = state_size
         self.action_size = action_size
         self.gamma = 0.95
@@ -29,7 +30,7 @@ class Agent:
         self.model = self._buildModel() if stored_model == "nothing" else load_model(stored_model)
         self.target_model = self._buildModel() if stored_model == "nothing" else load_model(stored_model)
         self.tau = .05
-        self.tensorboard = TensorBoard(log_dir="logs/test")
+        self.tensorboard = TensorBoardCustom('.log/' + run_name + '/')
 
         self.addToMemoryTime = 0
         self.fitBatchTime = 0
@@ -83,7 +84,7 @@ class Agent:
         model.compile(optimizer=Adam(lr=self.learning_rate), loss=huber_loss, metrics=['accuracy'])
         return model
 
-    def fitBatch(self, batch_size=32):
+    def fitBatch(self, reward, done, batch_size=32):
 
         if len(self.memory_current) < batch_size:
             return
@@ -104,8 +105,10 @@ class Agent:
                 target[self.memory_action[i]] = self.memory_reward[i] + Q_future * self.gamma
             targets[count] = target
             count += 1
-
-        self.model.fit(self.memory_current[indexes], targets, epochs=1, batch_size=batch_size, verbose=0)
+        
+        self.tensorboard.episode_score += reward
+        self.tensorboard.done = done
+        self.model.fit(self.memory_current[indexes], targets, epochs=1, batch_size=batch_size, verbose=0, callbacks=[self.tensorboard])
         # end = time.time()
         # self.fitBatchTime = (self.fitBatchTime + (end - start)) / 2
 
