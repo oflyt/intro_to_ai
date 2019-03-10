@@ -43,3 +43,5 @@ package-lock.json
 geckodriver.log
 *.h5
 *.npy
+/summaries
+/.log

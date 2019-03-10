@@ -14,12 +14,15 @@ class ImageProcessor:
     def downsample(self, img, dim):
         return cv2.resize(img, dsize=dim, interpolation=cv2.INTER_AREA)
 
-    def preprocess(self, img, dim):
+    def preprocess(self, img, dim, normalise=True):
         #start = time.time()
-        thing = self.to_grayscale(self.downsample(img, dim))
+        image = self.to_grayscale(self.downsample(img, dim))
+        if normalise:
+            norm = 1/255
+            new_image = image * norm
         #end = time.time()
         #self.processTime = (self.processTime + (end - start)) / 2
-        return thing
+        return new_image
 
     def scaledDimensions(self, width, height, scale):
         return int(width * scale), int(height * scale)

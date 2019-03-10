@@ -4,10 +4,13 @@ from keras.layers import Dense, Conv2D, Flatten
 from keras.optimizers import Adam
 from keras.initializers import RandomUniform
 from keras.callbacks import TensorBoard
+from keras import backend as K
+from tensorboard_remake import TensorBoardCustom
+import tensorflow as tf
 
 class Agent:
 
-    def __init__(self, state_size, action_size, queue_length, stored_model="nothing"):
+    def __init__(self, state_size, action_size, model, target_model, queue_length, stored_model="nothing", run_name = "run_1"):
         self.state_size = state_size
         self.action_size = action_size
         self.gamma = 0.95
@@ -18,49 +21,50 @@ class Agent:
         self.memory_action = np.zeros(queue_length, dtype=np.uint8)
         self.memory_reward = np.zeros(queue_length, dtype=np.uint8)
         self.memory_done = np.zeros(queue_length, dtype=bool)
-        self.epsilon_min = 0.1
-        self.epsilon_decay = 0.005
-        self.learning_rate = 0.01
-        self.model = self._buildModel() if stored_model == "nothing" else load_model(stored_model)
-        self.target_model = self._buildModel() if stored_model == "nothing" else load_model(stored_model)
+        self.epsilon_min = 0.3
+        # self.epsilon_decay = 0.005
+        self.learning_rate = 0.0001
+        self.model = model.model # self._buildModel() if stored_model == "nothing" else load_model(stored_model)
+        self.target_model = target_model.model # self._buildModel() if stored_model == "nothing" else load_model(stored_model)
         self.tau = .05
-        self.tensorboard = TensorBoard(log_dir="logs/test")
+        self.tensorboard = TensorBoardCustom('.log/' + run_name + '/')
+        self.sess = K.get_session()
 
         self.addToMemoryTime = 0
         self.fitBatchTime = 0
         self.findActionTime = 0
 
+    #
+    # def _buildModel(self):
+    #     model = Sequential()
+    #     model.add(Conv2D(32,
+    #                             8,
+    #                             strides=(4, 4),
+    #                             padding="valid",
+    #                             activation="relu",
+    #                             input_shape=self.state_size,
+    #                             data_format="channels_first"))
+    #     model.add(Conv2D(64,
+    #                             4,
+    #                             strides=(2, 2),
+    #                             padding="valid",
+    #                             activation="relu",
+    #                             input_shape=self.state_size,
+    #                             data_format="channels_first"))
+    #     model.add(Conv2D(64,
+    #                      4,
+    #                      strides=(1, 1),
+    #                      padding="valid",
+    #                      activation="relu",
+    #                      input_shape=self.state_size,
+    #                      data_format="channels_first"))
+    #     model.add(Flatten())
+    #     model.add(Dense(512, activation="relu"))
+    #     model.add(Dense(self.action_size, activation="linear", kernel_initializer=RandomUniform(minval=0, maxval=0.0001), bias_initializer=RandomUniform(minval=0, maxval=0.0001)))
+    #     model.compile(optimizer=Adam(lr=self.learning_rate), loss='mse', metrics=['accuracy'])
+    #     return model
 
-    def _buildModel(self):
-        model = Sequential()
-        model.add(Conv2D(32,
-                                8,
-                                strides=(4, 4),
-                                padding="valid",
-                                activation="relu",
-                                input_shape=self.state_size,
-                                data_format="channels_first"))
-        model.add(Conv2D(64,
-                                4,
-                                strides=(2, 2),
-                                padding="valid",
-                                activation="relu",
-                                input_shape=self.state_size,
-                                data_format="channels_first"))
-        model.add(Conv2D(64,
-                         4,
-                         strides=(1, 1),
-                         padding="valid",
-                         activation="relu",
-                         input_shape=self.state_size,
-                         data_format="channels_first"))
-        model.add(Flatten())
-        model.add(Dense(512, activation="relu"))
-        model.add(Dense(self.action_size, activation="linear", kernel_initializer=RandomUniform(minval=0, maxval=0.0001), bias_initializer=RandomUniform(minval=0, maxval=0.0001)))
-        model.compile(optimizer=Adam(lr=self.learning_rate), loss='mse', metrics=['accuracy'])
-        return model
-
-    def fitBatch(self, batch_size=32):
+    def fitBatch(self, reward, done, batch_size=32):
 
         if len(self.memory_current) < batch_size:
             return
@@ -81,8 +85,10 @@ class Agent:
                 target[self.memory_action[i]] = self.memory_reward[i] + Q_future * self.gamma
             targets[count] = target
             count += 1
-
-        self.model.fit(self.memory_current[indexes], targets, epochs=1, batch_size=batch_size, verbose=0)
+        self.tensorboard.episode_score += reward
+        self.tensorboard.done = done
+        history = self.model.fit(self.memory_current[indexes], targets, epochs=1, batch_size=batch_size, verbose=0, callbacks=[self.tensorboard])
+        return history.history['loss']
         # end = time.time()
         # self.fitBatchTime = (self.fitBatchTime + (end - start)) / 2
 
@@ -111,9 +117,11 @@ class Agent:
         #self.addToMemoryTime = (self.addToMemoryTime + (end - start)) / 2
 
 
-    def saveToDisk(self, filename, episode):
+    def saveToDisk(self, filename, episode, epsilon):
         if (episode +1) % 10 == 0:
-            self.target_model.save(filename)
+            self.target_model.save(filename + ".h5")
+            with open(filename +".csv", "w") as text_file:
+                print(f"{episode}, {epsilon}", file=text_file)
 
     def target_train(self):
         weights = self.model.get_weights()
