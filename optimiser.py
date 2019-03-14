@@ -9,6 +9,7 @@ class Optimizer(threading.Thread):
 
     def run(self):
         while not self.stop_signal:
+            print("opt")
             self.brain.optimize()
 
     def stop(self):

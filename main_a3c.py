@@ -23,18 +23,18 @@ from environment import Environment
 # -- constants
 ENV = 'BreakoutDeterministic-v4'
 
-RUN_TIME = 100000
+RUN_TIME = 100000000
 THREADS = 8
-OPTIMIZERS = 2
+OPTIMIZERS = 4
 THREAD_DELAY = 0.001
 
 GAMMA = 0.99
 
-N_STEP_RETURN = 8
+N_STEP_RETURN = 15
 GAMMA_N = GAMMA ** N_STEP_RETURN
 
-EPS_START = 0.4
-EPS_STOP = .15
+EPS_START = .4
+EPS_STOP = 0.1
 EPS_STEPS = 75000
 
 MIN_BATCH = 32
@@ -52,9 +52,9 @@ dims = (84,84)
 
 brain = Brain(state_size=(4,84,84), action_size=4, loss_entropy=LOSS_ENTROPY,
               loss_v=LOSS_ENTROPY, learning_rate=LEARNING_RATE, min_batch=MIN_BATCH,
-              gamma_n=GAMMA_N)  # brain is global in A3C
+              gamma=GAMMA)  # brain is global in A3C
 
-envs = [Environment(brain=brain, render=False, eps_start=0.,
+envs = [Environment(brain=brain, render=True, eps_start=0.,
                     eps_end=0., eps_steps=EPS_STEPS, thread_delay=THREAD_DELAY,
                     env_name=ENV, gamma=GAMMA, gamma_n=GAMMA_N,
                     n_step_return=N_STEP_RETURN) for i in range(THREADS)]

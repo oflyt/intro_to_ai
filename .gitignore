@@ -45,3 +45,5 @@ geckodriver.log
 *.npy
 /summaries
 /.log
+/saves*
+/videos_a2c

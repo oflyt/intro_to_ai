@@ -24,7 +24,10 @@ class Environment(threading.Thread):
 
     def addToCurrentState(self, state):
         self.current_state = np.roll(self.current_state, 1, axis=0)
-        self.current_state[0] = self.image_processor.preprocess(state, self.dims)
+        self.current_state[0] = self.image_processor.preprocess(state, self.dims, False)
+
+    def getCurrentState(self):
+        return np.transpose(self.current_state, (1, 2, 0))
 
     def runEpisode(self):
         self.addToCurrentState(self.env.reset())
@@ -34,13 +37,13 @@ class Environment(threading.Thread):
         R = 0
         while True:
             time.sleep(self.thread_delay)  # yield
-
+            current = self.getCurrentState()
             if self.render: self.env.render()
-            s = self.current_state
-            a = self.agent.act(self.current_state)
+            s = current
+            a = self.agent.act(current)
             sta, r, done, info = self.env.step(a)
             self.addToCurrentState(sta)
-            s_ = self.current_state
+            s_ = self.getCurrentState()
 
             if done:  # terminal state
                 s_ = None
@@ -50,9 +53,10 @@ class Environment(threading.Thread):
 
             if done or self.stop_signal:
                 self.brain.add_rewards(R)
+                self.brain.total_episodes += 1
                 break
-
-        print("Total R:", R)
+        if R > 11:
+            print("Total R:", R)
 
     def run(self):
         while not self.stop_signal:

@@ -19,10 +19,11 @@ class ImageProcessor:
         image = self.to_grayscale(self.downsample(img, dim))
         if normalise:
             norm = 1/255
-            new_image = image * norm
+            return image * norm
+        else:
+            return image
         #end = time.time()
         #self.processTime = (self.processTime + (end - start)) / 2
-        return new_image
 
     def scaledDimensions(self, width, height, scale):
         return int(width * scale), int(height * scale)
