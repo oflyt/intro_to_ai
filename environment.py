@@ -43,12 +43,7 @@ class Environment(threading.Thread):
             a = self.agent.act(current)
             sta, r, done, info = self.env.step(a)
             self.addToCurrentState(sta)
-            s_ = self.getCurrentState()
-
-            if done:  # terminal state
-                s_ = None
-
-            self.agent.train(s, a, r, s_)
+            self.agent.train(s, a, r, done)
             R += r
 
             if done or self.stop_signal:

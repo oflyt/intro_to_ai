@@ -1,5 +1,7 @@
 import random
 import numpy as np
+from collections import deque
+
 class Agent:
     def __init__(self, eps_start, eps_end, eps_steps, num_actions, gamma, gamma_n, n_step_return, brain):
         self.eps_start = eps_start
@@ -9,7 +11,7 @@ class Agent:
         self.gamma = gamma
         self.gamma_n = gamma_n
         self.n_step_return = n_step_return
-        self.memory = []  # used for n_step return
+        self.memory = [[], [], [], []]  # s, a, r, s'  # used for n_step return
         # self.R = 0.
         self.brain = brain
         self.frames = 0
@@ -22,45 +24,40 @@ class Agent:
 
     def act(self, s):
         eps = self.getEpsilon()
-        self.frames = self.frames + 1
-
+        self.frames += 1
+        s = np.array([s])
+        p = self.brain.predict_p(s)[0]
         if random.random() < eps:
-            s = np.array([s])
-            p = self.brain.predict_p(s)[0]
             a = np.random.choice(self.num_actions, p=p)
             return a
 
         else:
-            s = np.array([s])
-            p = self.brain.predict_p(s)[0]
-
             a = np.argmax(p)
             # if p[3] > .5 or p[2] > .5:
             #     print(p)
             return a
 
-    def train(self, s, a, r, s_):
+    def train(self, s, a, r, done):
         # def get_sample(memory, n):
         #     s, a, _, _ = memory[0]
         #     _, _, _, s_ = memory[n - 1]
         #
         #     return s, a, self.R, s_
 
-        a_cats = np.zeros(self.num_actions)  # turn action into one-hot representation
-        a_cats[a] = 1
+        # a_cats = np.zeros(self.num_actions)  # turn action into one-hot representation
+        # a_cats[a] = 1
 
-        self.memory.append((s, a_cats, r, s_))
+        self.memory[0].append(s)
+        self.memory[1].append(a)
+        self.memory[2].append(r)
+        self.memory[3].append(done)
 
         # self.R = (self.R + r * self.gamma_n) / self.gamma
 
-        if s_ is None:
-            while len(self.memory) > 0:
-                # n = len(self.memory)
-                # s, a, r, s_ = get_sample(self.memory, n)
-                self.brain.train_push(s, a, r, s_)
-
-                #self.R = (self.R - self.memory[0][2]) / self.gamma
-                self.memory.pop(0)
+        if (done and len(self.memory[0]) > 0) or len(self.memory) >= self.n_step_return:
+                s, a, r, s_ = self.memory
+                self.brain.train_push(s, a, r, done)
+                self.memory = [[], [], [], []]
 
         # if len(self.memory) >= self.n_step_return:
         #     s, a, r, s_ = get_sample(self.memory, self.n_step_return)

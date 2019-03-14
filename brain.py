@@ -10,7 +10,7 @@ from keras import backend as K
 
 # ---------
 class Brain:
-    train_queue = [[], [], [], [], []]  # s, a, r, s', s' terminal mask
+    train_queue = [[], [], [], []]  # s, a, r, s', s' terminal mask
     lock_queue = threading.Lock()
 
     def __init__(self, state_size, action_size, loss_entropy, loss_v, learning_rate, min_batch, gamma):
@@ -22,12 +22,15 @@ class Brain:
         self.LOSS_ENTROPY = loss_entropy
         self.state_size = state_size
         self.action_size = action_size
+        self.decay_steps = 0
+        self.decay_max = 30000
         self.session = tf.Session()
         self.rewards = []
         self.total_episodes = 0
         K.set_session(self.session)
         K.manual_variable_initialization(True)
         self.make_model()
+
 
         # self.model = self._build_model()
         # self.graph = self._build_graph(self.model)
@@ -129,6 +132,8 @@ class Brain:
         self.entropy = tf.reduce_mean(self.openai_entropy(self.actor_policy_logits))
         self.loss = self.actor_loss + 0.5 * self.critic_loss - 0.01 * self.entropy
 
+        print(self.loss)
+
         with tf.variable_scope("policy"):
             params = tf.trainable_variables()
         grads = tf.gradients(self.loss, params)
@@ -209,12 +214,12 @@ class Brain:
     #     return s_t, a_t, r_t, minimize
 
     def decay_lr(self):
-        decayed = self.lr * (1 - self.decay_steps / self.decay_max)
+        decayed = self.LEARNING_RATE * (1 - self.decay_steps / self.decay_max)
         self.decay_steps += 1
         return decayed
 
     def optimize(self):
-        print("here we are")
+        len(self.train_queue[0])
         if len(self.train_queue[0]) < self.MIN_BATCH:
             time.sleep(0)  # yield
             return
@@ -223,83 +228,83 @@ class Brain:
             if len(self.train_queue[0]) < self.MIN_BATCH:  # more thread could have passed without lock
                 return  # we can't yield inside lock
 
-            s, a, r, s_, s_mask = self.train_queue
-            self.train_queue = [[], [], [], [], []]
-        print(len(s))
-        s = np.stack(s)
-        a = np.vstack(a)
-        r = np.vstack(r)
-        s_ = np.stack(s_)
-        s_mask = np.vstack(s_mask)
+            s, a, r, done = self.train_queue
+            self.train_queue = [[], [], [], []]
 
-        last_state = s_[-1] if s_[-1] is not None else s[-1]
+        for i in range(len(s)):
+            last_state = s[i][-1]
 
-        last_value = self.session.run(
-            self.critic_output_tensor,
-            feed_dict={
-                self.input_tensor: np.array([last_state])
-            },
-        )
+            last_value = self.session.run(
+                self.critic_output_tensor,
+                feed_dict={
+                    self.input_tensor: np.array([last_state])
+                },
+            )
 
-        values = self.session.run(
-            self.critic_output_tensor,
-            feed_dict={
-                self.input_tensor: np.array(s)
-            },
-        )
+            values = self.session.run(
+                self.critic_output_tensor,
+                feed_dict={
+                    self.input_tensor: np.array(s[i])
+                },
+            )
 
-        R = np.zeros_like(np.array(values))
+            R = np.zeros_like(np.array(values))
 
-        # if len(s) > 5 * self.MIN_BATCH: print("Optimizer alert! Minimizing batch of %d" % len(s))
+            # if len(s) > 5 * self.MIN_BATCH: print("Optimizer alert! Minimizing batch of %d" % len(s))
 
-        # Note!!! Only the last state value is wrapped into the rollout! Not
-        # the value for each state at each time-step!
-        if s_mask[-1] is None:
-            cumulative_discounted = 0
-        else:
-            cumulative_discounted = last_value
+            # Note!!! Only the last state value is wrapped into the rollout! Not
+            # the value for each state at each time-step!
+            if done[-1] == 1:
+                cumulative_discounted = 0
+            else:
+                cumulative_discounted = last_value
 
-        for t in range(len(r) - 1, -1, -1):
-            cumulative_discounted = r[t] + self.GAMMA * cumulative_discounted
-            R[t] = cumulative_discounted
+            for t in range(len(r[i]) - 1, -1, -1):
+                cumulative_discounted = r[i][t] + self.GAMMA * cumulative_discounted
+                R[t] = cumulative_discounted
 
-        decayed_lr = self.decay_lr()
+            decayed_lr = self.decay_lr()
 
-        actor_loss, critic_loss, entropy, _ = self.session.run(
-            [self.actor_loss, self.critic_loss, self.entropy, self.train_both],
-            feed_dict={
-                self.lr_tensor: decayed_lr,
-                self.input_tensor: np.array(s),
-                self.A_tensor: np.array(a),
-                self.R_tensor: R.reshape((-1)),
-                self.advantage_tensor: np.ndarray.flatten(R - values),
-            },
-        )
+            advantage = np.ndarray.flatten(R - values)
 
+            actor_loss, critic_loss, entropy, _ = self.session.run(
+                [self.actor_loss, self.critic_loss, self.entropy, self.train_both],
+                feed_dict={
+                    self.lr_tensor: decayed_lr,
+                    self.input_tensor: np.array(s[i]),
+                    self.A_tensor: np.array(a[i]).reshape((-1)),
+                    self.R_tensor: R.reshape((-1)),
+                    self.advantage_tensor: advantage,
+                },
+            )
 
-        reward_summary = tf.Summary(value=[tf.Summary.Value(tag="average_reward",
-                                                            simple_value=np.mean(self.rewards[-100:]))])
-        self.writer.add_summary(reward_summary, self.total_episodes)
+            if self.total_episodes > 0:
 
-        reward_summary = tf.Summary(value=[tf.Summary.Value(tag="actor_loss",
-                                                            simple_value=actor_loss)])
-        self.writer.add_summary(reward_summary, self.total_episodes)
+                reward_summary = tf.Summary(value=[tf.Summary.Value(tag="average_reward",
+                                                                    simple_value=np.mean(self.rewards[-100:]))])
+                self.writer.add_summary(reward_summary, self.total_episodes)
 
-        reward_summary = tf.Summary(value=[tf.Summary.Value(tag="critic_loss",
-                                                            simple_value=critic_loss)])
-        self.writer.add_summary(reward_summary, self.total_episodes)
+                reward_summary = tf.Summary(value=[tf.Summary.Value(tag="actor_loss",
+                                                                    simple_value=actor_loss)])
+                self.writer.add_summary(reward_summary, self.total_episodes)
 
-        reward_summary = tf.Summary(value=[tf.Summary.Value(tag="entropy",
-                                                            simple_value=entropy)])
-        self.writer.add_summary(reward_summary, self.total_episodes)
+                reward_summary = tf.Summary(value=[tf.Summary.Value(tag="critic_loss",
+                                                                    simple_value=critic_loss)])
+                self.writer.add_summary(reward_summary, self.total_episodes)
 
+                reward_summary = tf.Summary(value=[tf.Summary.Value(tag="entropy",
+                                                                    simple_value=entropy)])
+                self.writer.add_summary(reward_summary, self.total_episodes)
+        if not os.path.exists('saves'):
+            os.mkdir('saves')
+            self.saver.save(self.session, 'saves/')
         # v = self.predict_v(s_)
         # r = r + self.GAMMA_N * v * s_mask  # set v to 0 where s_ is terminal state
         #
         # s_t, a_t, r_t, minimize = self.graph
         # self.session.run(minimize, feed_dict={s_t: s, a_t: a, r_t: r})
 
-    def train_push(self, s, a, r, s_):
+    def train_push(self, s, a, r, done):
         with self.lock_queue:
             self.train_queue[0].append(s)
             self.train_queue[1].append(a)
@@ -309,9 +314,7 @@ class Brain:
             #     self.train_queue[3].append(self.NONE_STATE)
             #     self.train_queue[4].append(0.)
             # else:
-            self.train_queue[3].append(s_)
-            self.train_queue[4].append(1.)
-            print("push)")
+            self.train_queue[3].append(done)
 
     # def predict(self, s):
     #     with self.default_graph.as_default():

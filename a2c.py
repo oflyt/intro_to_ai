@@ -313,6 +313,7 @@ class A2C:
                 R[t] = cumulative_discounted
 
             decayed_lr = self.decay_lr()
+            rew  = R.reshape((-1))
 
             actor_loss, critic_loss, entropy, _ = sess.run(
                 [self.actor_loss, self.critic_loss, self.entropy, self.train_both],
