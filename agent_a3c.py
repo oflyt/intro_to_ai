@@ -23,19 +23,21 @@ class Agent:
             return self.eps_start + self.frames * (self.eps_end - self.eps_start) / self.eps_steps  # linearly interpolate
 
     def act(self, s):
-        eps = self.getEpsilon()
+        #eps = self.getEpsilon()
         self.frames += 1
         s = np.array([s])
         p = self.brain.predict_p(s)[0]
-        if random.random() < eps:
-            a = np.random.choice(self.num_actions, p=p)
-            return a
-
-        else:
-            a = np.argmax(p)
-            # if p[3] > .5 or p[2] > .5:
-            #     print(p)
-            return a
+        a = np.random.choice(self.num_actions, p=p)
+        return a
+        # if random.random() < eps:
+        #     a = np.random.choice(self.num_actions, p=p)
+        #     return a
+        #
+        # else:
+        #     a = np.argmax(p)
+        #     # if p[3] > .5 or p[2] > .5:
+        #     #     print(p)
+        #     return a
 
     def train(self, s, a, r, done):
         # def get_sample(memory, n):
@@ -51,6 +53,8 @@ class Agent:
         self.memory[1].append(a)
         self.memory[2].append(r)
         self.memory[3].append(done)
+        if len(self.memory) > 2000:
+            print(len(self.memory))
 
         # self.R = (self.R + r * self.gamma_n) / self.gamma
 

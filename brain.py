@@ -48,7 +48,8 @@ class Brain:
         a0 = logits - tf.reduce_max(logits, 1, keep_dims=True)
         ea0 = tf.exp(a0)
         z0 = tf.reduce_sum(ea0, 1, keep_dims=True)
-        p0 = ea0 / z0
+        print(z0)
+        p0 = ea0 / (z0 + 0.000000000001)
         return tf.reduce_sum(p0 * (tf.log(z0) - a0), 1)
 
     def make_model(self):
@@ -130,7 +131,7 @@ class Brain:
         self.actor_loss = tf.reduce_mean(self.advantage_tensor * neg_log_action_probabilities)
         self.critic_loss = tf.reduce_mean(tf.square(self.R_tensor - tf.squeeze(self.critic_output_tensor)) / 2)
         self.entropy = tf.reduce_mean(self.openai_entropy(self.actor_policy_logits))
-        self.loss = self.actor_loss + 0.5 * self.critic_loss - 0.01 * self.entropy
+        self.loss = self.actor_loss + 0.5 * self.critic_loss - 0.01 * tf.cond(tf.less(self.entropy, 0.1), lambda: 0.1, lambda: self.entropy)
 
         print(self.loss)
 
@@ -214,8 +215,7 @@ class Brain:
     #     return s_t, a_t, r_t, minimize
 
     def decay_lr(self):
-        decayed = self.LEARNING_RATE * (1 - self.decay_steps / self.decay_max)
-        self.decay_steps += 1
+        decayed = self.LEARNING_RATE * (1 - self.total_episodes / self.decay_max)
         return decayed
 
     def optimize(self):
@@ -315,6 +315,8 @@ class Brain:
             #     self.train_queue[4].append(0.)
             # else:
             self.train_queue[3].append(done)
+        if len(self.train_queue) > 2000:
+            print(len(self.train_queue))
 
     # def predict(self, s):
     #     with self.default_graph.as_default():
