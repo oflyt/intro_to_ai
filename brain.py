@@ -7,11 +7,13 @@ from keras.models import *
 from keras.layers import *
 from keras.initializers import Orthogonal
 from keras import backend as K
+import os
 
 # ---------
 class Brain:
     train_queue = [[], [], [], []]  # s, a, r, s', s' terminal mask
     lock_queue = threading.Lock()
+    lock_file = threading.Lock()
 
     def __init__(self, state_size, action_size, loss_entropy, loss_v, learning_rate, min_batch, gamma):
         self.GAMMA = gamma
@@ -23,23 +25,22 @@ class Brain:
         self.state_size = state_size
         self.action_size = action_size
         self.decay_steps = 0
-        self.decay_max = 30000
+        self.decay_max = 10000
         self.session = tf.Session()
         self.rewards = []
         self.total_episodes = 0
+        self.max_reward = 0
+
+        self.session = tf.Session()
         K.set_session(self.session)
-        K.manual_variable_initialization(True)
+
         self.make_model()
 
+        self.session.run(tf.global_variables_initializer())
+        self.default_graph = tf.get_default_graph()
 
-        # self.model = self._build_model()
-        # self.graph = self._build_graph(self.model)
-
-        # self.session.run(tf.global_variables_initializer())
-        # self.default_graph = tf.get_default_graph()
-
-        # self.default_graph.finalize()  # avoid modifications
-        self.writer = tf.summary.FileWriter(".log/run_4",
+        self.default_graph.finalize()  # avoid modifications
+        self.writer = tf.summary.FileWriter(".log/run_9",
                                             self.session.graph)
 
     # Copied from https://github.com/MG2033/A2C/blob/master/layers.py
@@ -48,13 +49,12 @@ class Brain:
         a0 = logits - tf.reduce_max(logits, 1, keep_dims=True)
         ea0 = tf.exp(a0)
         z0 = tf.reduce_sum(ea0, 1, keep_dims=True)
-        print(z0)
-        p0 = ea0 / (z0 + 0.000000000001)
+        p0 = ea0 / z0
         return tf.reduce_sum(p0 * (tf.log(z0) - a0), 1)
 
     def make_model(self):
 
-        self.input_tensor = tf.placeholder(tf.float32, shape=(None, 84, 84, 4))
+        self.input_tensor = tf.placeholder(tf.float32, shape=(None, 4, 84, 84))
 
         self.R_tensor = tf.placeholder(tf.float32, shape=[None])
         self.A_tensor = tf.placeholder(tf.int32, shape=[None])
@@ -71,6 +71,7 @@ class Brain:
                     inputs=(tf.cast(self.input_tensor, tf.float32) / 255),
                     filters=32,
                     kernel_size=[8,8],
+                    data_format="channels_first",
                     strides=4,
                     padding='valid',    # 'same'?
                     activation=tf.nn.relu,
@@ -80,6 +81,7 @@ class Brain:
                     inputs=conv1,
                     filters=64,
                     kernel_size=[4,4],
+                    data_format="channels_first",
                     strides=2,
                     padding='valid',    # 'same'?
                     activation=tf.nn.relu,
@@ -89,6 +91,7 @@ class Brain:
                     inputs=conv2,
                     filters=64,
                     kernel_size=[3,3],
+                    data_format="channels_first",
                     strides=1,
                     padding='valid',    # 'same'?
                     activation=tf.nn.relu,
@@ -130,8 +133,11 @@ class Brain:
         # sparse_softmax_cross_entropy is already negative, so don't need - here
         self.actor_loss = tf.reduce_mean(self.advantage_tensor * neg_log_action_probabilities)
         self.critic_loss = tf.reduce_mean(tf.square(self.R_tensor - tf.squeeze(self.critic_output_tensor)) / 2)
-        self.entropy = tf.reduce_mean(self.openai_entropy(self.actor_policy_logits))
-        self.loss = self.actor_loss + 0.5 * self.critic_loss - 0.01 * tf.cond(tf.less(self.entropy, 0.1), lambda: 0.1, lambda: self.entropy)
+        self.temp_entropy = tf.reduce_mean(self.openai_entropy(self.actor_policy_logits))
+        # self.entropy = self.temp_entropy
+        self.entropy = tf.cond(tf.less(self.temp_entropy, 0.8), lambda: 0.8, lambda: self.temp_entropy)
+        # self.entropy = self.LOSS_ENTROPY * tf.reduce_sum(p * tf.log(p + 1e-10), axis=1, keep_dims=True)
+        self.loss = self.actor_loss + 0.5 * self.critic_loss - 0.01 * self.entropy
 
         print(self.loss)
 
@@ -215,11 +221,10 @@ class Brain:
     #     return s_t, a_t, r_t, minimize
 
     def decay_lr(self):
-        decayed = self.LEARNING_RATE * (1 - self.total_episodes / self.decay_max)
+        decayed = self.LEARNING_RATE * ((1 - self.total_episodes / self.decay_max) if self.total_episodes < self.decay_max else 1)
         return decayed
 
     def optimize(self):
-        len(self.train_queue[0])
         if len(self.train_queue[0]) < self.MIN_BATCH:
             time.sleep(0)  # yield
             return
@@ -244,22 +249,23 @@ class Brain:
             values = self.session.run(
                 self.critic_output_tensor,
                 feed_dict={
-                    self.input_tensor: np.array(s[i])
+                    self.input_tensor: s[i]
                 },
             )
+            values_array = np.array(values)
 
-            R = np.zeros_like(np.array(values))
+            R = np.zeros_like(values_array)
 
             # if len(s) > 5 * self.MIN_BATCH: print("Optimizer alert! Minimizing batch of %d" % len(s))
 
             # Note!!! Only the last state value is wrapped into the rollout! Not
             # the value for each state at each time-step!
-            if done[-1] == 1:
+            if done[i][-1] == 1:
                 cumulative_discounted = 0
             else:
                 cumulative_discounted = last_value
 
-            for t in range(len(r[i]) - 1, -1, -1):
+            for t in range(len(r[i]) - 1):
                 cumulative_discounted = r[i][t] + self.GAMMA * cumulative_discounted
                 R[t] = cumulative_discounted
 
@@ -271,8 +277,8 @@ class Brain:
                 [self.actor_loss, self.critic_loss, self.entropy, self.train_both],
                 feed_dict={
                     self.lr_tensor: decayed_lr,
-                    self.input_tensor: np.array(s[i]),
-                    self.A_tensor: np.array(a[i]).reshape((-1)),
+                    self.input_tensor: s[i],
+                    self.A_tensor: a[i],
                     self.R_tensor: R.reshape((-1)),
                     self.advantage_tensor: advantage,
                 },
@@ -288,6 +294,10 @@ class Brain:
                                                                     simple_value=actor_loss)])
                 self.writer.add_summary(reward_summary, self.total_episodes)
 
+                reward_summary = tf.Summary(value=[tf.Summary.Value(tag="max_reward",
+                                                                    simple_value=self.max_reward)])
+                self.writer.add_summary(reward_summary, self.total_episodes)
+
                 reward_summary = tf.Summary(value=[tf.Summary.Value(tag="critic_loss",
                                                                     simple_value=critic_loss)])
                 self.writer.add_summary(reward_summary, self.total_episodes)
@@ -295,9 +305,14 @@ class Brain:
                 reward_summary = tf.Summary(value=[tf.Summary.Value(tag="entropy",
                                                                     simple_value=entropy)])
                 self.writer.add_summary(reward_summary, self.total_episodes)
-        if not os.path.exists('saves'):
-            os.mkdir('saves')
-            self.saver.save(self.session, 'saves/')
+        if self.total_episodes % 50 == 0:
+            print("save at ", self.total_episodes)
+            with self.lock_file:
+                if not os.path.exists('saves'):
+                    os.mkdir('saves')
+                self.saver.save(self.session, 'saves/')
+            print("saved. Length queue: ", len(self.train_queue[0]) )
+
         # v = self.predict_v(s_)
         # r = r + self.GAMMA_N * v * s_mask  # set v to 0 where s_ is terminal state
         #
@@ -309,14 +324,9 @@ class Brain:
             self.train_queue[0].append(s)
             self.train_queue[1].append(a)
             self.train_queue[2].append(r)
-
-            # if s_ is None:
-            #     self.train_queue[3].append(self.NONE_STATE)
-            #     self.train_queue[4].append(0.)
-            # else:
             self.train_queue[3].append(done)
-        if len(self.train_queue) > 2000:
-            print(len(self.train_queue))
+            if len(self.train_queue[0]) > 2000:
+                print(len(self.train_queue))
 
     # def predict(self, s):
     #     with self.default_graph.as_default():
@@ -324,13 +334,14 @@ class Brain:
     #         return p, v
 
     def predict_p(self, s):
-        probs = self.session.run(
-            self.actor_output_tensor,
-            feed_dict={
-                self.input_tensor: np.array(s)
-            },
-        )
-        return probs
+        with self.default_graph.as_default():
+            probs = self.session.run(
+                self.actor_output_tensor,
+                feed_dict={
+                    self.input_tensor: np.array(s)
+                },
+            )
+            return probs
 
     # def predict_v(self, s):
     #     with self.default_graph.as_default():
@@ -338,5 +349,7 @@ class Brain:
     #         return v
 
     def add_rewards(self, reward):
-        self.rewards.append(reward)
-        self.total_episodes += 1
+        with self.lock_file:
+            self.rewards.append(reward)
+            self.max_reward = reward if reward > self.max_reward else self.max_reward
+            self.total_episodes += 1

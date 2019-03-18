@@ -23,16 +23,21 @@ class Agent:
         self.memory_done = np.zeros(queue_length, dtype=bool)
         self.epsilon_min = 0.3
         # self.epsilon_decay = 0.005
-        self.learning_rate = 0.0001
         self.model = model.model # self._buildModel() if stored_model == "nothing" else load_model(stored_model)
         self.target_model = target_model.model # self._buildModel() if stored_model == "nothing" else load_model(stored_model)
         self.tau = .05
         self.tensorboard = TensorBoardCustom('.log/' + run_name + '/')
-        self.sess = K.get_session()
+        self.session = tf.Session()
+        K.set_session(self.session)
 
         self.addToMemoryTime = 0
         self.fitBatchTime = 0
         self.findActionTime = 0
+
+        self.session.run(tf.global_variables_initializer())
+        self.default_graph = tf.get_default_graph()
+
+        self.default_graph.finalize()    # avoid modifications
 
     #
     # def _buildModel(self):

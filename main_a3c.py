@@ -23,14 +23,14 @@ from environment import Environment
 # -- constants
 ENV = 'BreakoutDeterministic-v4'
 
-RUN_TIME = 100000000
+RUN_TIME = 1000000
 THREADS = 8
 OPTIMIZERS = 4
 THREAD_DELAY = 0.001
 
-GAMMA = 0.99
+GAMMA = 0.95
 
-N_STEP_RETURN = 1000
+N_STEP_RETURN = 250
 GAMMA_N = GAMMA ** N_STEP_RETURN
 
 EPS_START = 1.0
@@ -38,7 +38,7 @@ EPS_STOP = 0.1
 EPS_STEPS = 800000
 
 MIN_BATCH = 8
-LEARNING_RATE = 7e-4
+LEARNING_RATE = 0.001
 
 LOSS_V = .5  # v loss coefficient
 LOSS_ENTROPY = .01  # entropy coefficient

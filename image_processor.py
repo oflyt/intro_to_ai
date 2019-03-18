@@ -17,11 +17,7 @@ class ImageProcessor:
     def preprocess(self, img, dim, normalise=True):
         #start = time.time()
         image = self.to_grayscale(self.downsample(img, dim))
-        if normalise:
-            norm = 1/255
-            return image * norm
-        else:
-            return image
+        return image
         #end = time.time()
         #self.processTime = (self.processTime + (end - start)) / 2
 
